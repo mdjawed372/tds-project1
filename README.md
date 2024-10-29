@@ -1,0 +1,3 @@
+- The data was gathered from the GitHub API by filtering users in Moscow with more than 50 followers and their repositories.
+- Interestingly, many Moscow developers work in diverse programming languages, showing versatility.
+- Recommendation: Focusing on repositories in trending languages may increase visibility and engagement for Moscow-based developers.
