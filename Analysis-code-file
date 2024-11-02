@@ -1,0 +1,119 @@
+import requests
+import pandas as pd
+import time
+from tqdm.notebook import tqdm
+
+# GitHub API configuration
+GITHUB_TOKEN = "YOUR_GITHUB_TOKEN"  # Replace with your token
+headers = {
+    'Authorization': f'token {GITHUB_TOKEN}',
+    'Accept': 'application/vnd.github.v3+json'
+}
+
+def clean_company_name(company):
+    if not company:
+        return ""
+    company = str(company).strip()
+    if company.startswith('@'):
+        company = company[1:]
+    return company.upper()
+
+def get_moscow_users(min_followers=50):
+    users_data = []
+    page = 1
+    
+    while True:
+        search_url = f"https://api.github.com/search/users?q=location:Moscow+followers:>={min_followers}&page={page}&per_page=100"
+        response = requests.get(search_url, headers=headers)
+        
+        if response.status_code == 403:
+            print("Rate limit exceeded. Waiting for reset...")
+            time.sleep(60)
+            continue
+            
+        if response.status_code != 200:
+            print(f"Error: {response.status_code}")
+            break
+            
+        data = response.json()
+        if not data['items']:
+            break
+            
+        for user in data['items']:
+            user_url = f"https://api.github.com/users/{user['login']}"
+            user_response = requests.get(user_url, headers=headers)
+            
+            if user_response.status_code == 200:
+                user_data = user_response.json()
+                users_data.append({
+                    'login': user_data.get('login', ''),
+                    'name': user_data.get('name', ''),
+                    'company': clean_company_name(user_data.get('company')),
+                    'location': user_data.get('location', ''),
+                    'email': user_data.get('email', ''),
+                    'hireable': str(user_data.get('hireable', '')).lower(),
+                    'bio': user_data.get('bio', ''),
+                    'public_repos': user_data.get('public_repos', 0),
+                    'followers': user_data.get('followers', 0),
+                    'following': user_data.get('following', 0),
+                    'created_at': user_data.get('created_at', '')
+                })
+            
+            time.sleep(1)  # Respect rate limits
+        
+        page += 1
+        
+    return pd.DataFrame(users_data)
+
+def get_user_repositories(username):
+    repos_data = []
+    page = 1
+    
+    while len(repos_data) < 500:
+        repos_url = f"https://api.github.com/users/{username}/repos?page={page}&per_page=100&sort=pushed"
+        response = requests.get(repos_url, headers=headers)
+        
+        if response.status_code != 200:
+            break
+            
+        repos = response.json()
+        if not repos:
+            break
+            
+        for repo in repos:
+            repos_data.append({
+                'login': username,
+                'full_name': repo.get('full_name', ''),
+                'created_at': repo.get('created_at', ''),
+                'stargazers_count': repo.get('stargazers_count', 0),
+                'watchers_count': repo.get('watchers_count', 0),
+                'language': repo.get('language', ''),
+                'has_projects': str(repo.get('has_projects', '')).lower(),
+                'has_wiki': str(repo.get('has_wiki', '')).lower(),
+                'license_name': repo.get('license', {}).get('key', '')
+            })
+        
+        page += 1
+        time.sleep(1)  # Respect rate limits
+        
+    return repos_data
+
+# Main execution
+def main():
+    # Get users
+    print("Fetching Moscow users...")
+    users_df = get_moscow_users(min_followers=50)
+    users_df.to_csv('users.csv', index=False)
+    
+    # Get repositories for each user
+    print("Fetching repositories...")
+    all_repos = []
+    for username in tqdm(users_df['login']):
+        repos = get_user_repositories(username)
+        all_repos.extend(repos)
+    
+    repos_df = pd.DataFrame(all_repos)
+    repos_df.to_csv('repositories.csv', index=False)
+
+if __name__ == "__main__":
+    main()
